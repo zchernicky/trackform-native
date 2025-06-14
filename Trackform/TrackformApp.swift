@@ -55,7 +55,7 @@ struct SettingsView: View {
                     .font(.title)
                     .fontWeight(.bold)
                 
-                Text("Version 1.0.0")
+                Text("Version 0.0.1-alpha")
                     .foregroundStyle(.secondary)
                 
                 Text("A modern MP3 metadata editor")
