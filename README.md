@@ -1,6 +1,6 @@
 # Trackform
 
-A macOS application for editing MP3 metadata using FFmpeg.
+Trackform is an MP3 metadata toolkit that allows you to embed, tag, and view metadata in MP3 files.
 
 ## Requirements
 
