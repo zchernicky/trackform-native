@@ -25,17 +25,19 @@ struct ContentView: View {
                     HStack {
                         Text("Trackform")
                             .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.primary)
                         Spacer()
                         Button(action: { isFilePickerPresented = true }) {
                             Label("Open File", systemImage: "doc.badge.plus")
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
+                        .tint(.accentColor)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                     .padding(.top, 20)
-                    .background(.ultraThinMaterial)
+                    .background(Color.white)
                     
                     // File Selection Status
                     if let file = selectedFile {
@@ -43,7 +45,7 @@ struct ContentView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "waveform")
                                     .font(.system(size: 20))
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(Color.accentColor)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(file.lastPathComponent)
                                         .font(.system(size: 15, weight: .medium))
@@ -74,67 +76,17 @@ struct ContentView: View {
                             .padding(.horizontal, 20)
                             .padding(.vertical, 8)
                         }
-                        .background(.ultraThinMaterial)
+                        .background(Color.white)
                     }
                 }
                 
                 // Scrollable Content
                 ScrollView {
-                    VStack {
-                        Form {
-                            Section {
-                                TextField("Title", text: $metadata.title)
-                                    .textFieldStyle(.roundedBorder)
-                                TextField("Artist", text: $metadata.artist)
-                                    .textFieldStyle(.roundedBorder)
-                                TextField("Year", text: $metadata.year)
-                                    .textFieldStyle(.roundedBorder)
-                                TextField("Genre", text: $metadata.genre)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                            
-                            Section {
-                                Button(action: {
-                                    if shouldAlwaysAllow {
-                                        Task {
-                                            await saveMetadata()
-                                        }
-                                    } else {
-                                        showingSaveConfirmation = true
-                                    }
-                                }) {
-                                    HStack {
-                                        if isLoading {
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle())
-                                                .controlSize(.small)
-                                        } else {
-                                            Image(systemName: "square.and.arrow.down")
-                                            Text("Save Metadata")
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.large)
-                                .disabled(selectedFile == nil || isLoading)
-                                
-                                if let message = statusMessage {
-                                    HStack {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.green)
-                                        Text(message)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(.top, 8)
-                                }
-                            }
-                        }
-                        .formStyle(.grouped)
-                    }
+                    formFields
                 }
+                .background(Color.white)
             }
-            .background(Color(.windowBackgroundColor))
+            .background(Color.white)
             .ignoresSafeArea(.all, edges: .all)
             .alert("Message", isPresented: $showingAlert) {
                 Button("OK", role: .cancel) { }
@@ -189,6 +141,136 @@ struct ContentView: View {
                 restoreBookmark()
             }
         }
+    }
+    
+    @ViewBuilder
+    private var formFields: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 14) {
+                HStack(spacing: 12) {
+                    Text("Title")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(width: 60, alignment: .leading)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        TextField("Title", text: $metadata.title)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .font(.system(size: 15))
+                            .background(Color.clear)
+                            .cornerRadius(8)
+                    }
+                    .frame(height: 28)
+                }
+                .padding(.horizontal, 2)
+                HStack(spacing: 12) {
+                    Text("Artist")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(width: 60, alignment: .leading)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        TextField("Artist", text: $metadata.artist)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .font(.system(size: 15))
+                            .background(Color.clear)
+                            .cornerRadius(8)
+                    }
+                    .frame(height: 28)
+                }
+                .padding(.horizontal, 2)
+                HStack(spacing: 12) {
+                    Text("Year")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(width: 60, alignment: .leading)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        TextField("Year", text: $metadata.year)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .font(.system(size: 15))
+                            .background(Color.clear)
+                            .cornerRadius(8)
+                    }
+                    .frame(height: 28)
+                }
+                .padding(.horizontal, 2)
+                HStack(spacing: 12) {
+                    Text("Genre")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(width: 60, alignment: .leading)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        TextField("Genre", text: $metadata.genre)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .font(.system(size: 15))
+                            .background(Color.clear)
+                            .cornerRadius(8)
+                    }
+                    .frame(height: 28)
+                }
+                .padding(.horizontal, 2)
+            }
+            .padding(.horizontal, 8)
+
+            Button(action: {
+                if shouldAlwaysAllow {
+                    Task { await saveMetadata() }
+                } else {
+                    showingSaveConfirmation = true
+                }
+            }) {
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "square.and.arrow.down")
+                        Text("Save Metadata")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(.accentColor)
+            .disabled(selectedFile == nil || isLoading)
+
+            if let message = statusMessage {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text(message)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 8)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: 400)
+        .background(Color.white)
     }
     
     private func restoreBookmark() {
@@ -273,10 +355,10 @@ struct ContentView: View {
             
             // Create metadata object
             let metadata = MP3Metadata(
-                title: metadata.title,
-                artist: metadata.artist,
-                year: metadata.year,
-                genre: metadata.genre
+                title: self.metadata.title,
+                artist: self.metadata.artist,
+                year: self.metadata.year,
+                genre: self.metadata.genre
             )
             
             // Write metadata and get the updated file URL
