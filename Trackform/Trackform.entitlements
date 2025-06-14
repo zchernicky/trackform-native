@@ -2,12 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Enable App Sandbox for enhanced security -->
     <key>com.apple.security.app-sandbox</key>
     <true/>
+    
+    <!-- Allow reading and writing to user-selected files -->
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
+    
+    <!-- Allow network access for potential future features -->
     <key>com.apple.security.network.client</key>
     <true/>
+    
+    <!-- Allow access to system features required for file operations -->
     <key>com.apple.security.os-eligibility</key>
     <true/>
 </dict>

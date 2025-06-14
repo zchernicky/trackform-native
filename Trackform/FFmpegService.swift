@@ -1,10 +1,32 @@
 import Foundation
 
+/// Service responsible for handling MP3 metadata operations using FFmpeg
 class FFmpegService {
+    /// Shared instance for singleton access
     static let shared = FFmpegService()
+    
+    /// Custom errors that can occur during FFmpeg operations
+    enum FFmpegError: Error {
+        case fileAccessDenied
+        case tempFileCreationFailed
+        case ffmpegExecutionFailed(String)
+        
+        var localizedDescription: String {
+            switch self {
+            case .fileAccessDenied:
+                return "Permission denied to access the file"
+            case .tempFileCreationFailed:
+                return "Failed to create temporary output file"
+            case .ffmpegExecutionFailed(let message):
+                return "FFmpeg execution failed: \(message)"
+            }
+        }
+    }
     
     private init() {}
     
+    /// Returns the path to the FFmpeg executable
+    /// First checks the app bundle, then falls back to Homebrew installation
     private var ffmpegPath: String {
         if let resourcePath = Bundle.main.resourcePath {
             let ffmpegPath = resourcePath + "/ffmpeg"
@@ -15,109 +37,150 @@ class FFmpegService {
         return "/opt/homebrew/bin/ffmpeg"
     }
     
+    /// Reads metadata from an MP3 file using FFmpeg
+    /// - Parameter fileURL: URL of the MP3 file to read
+    /// - Returns: MP3Metadata object containing the file's metadata
     func readMetadata(from fileURL: URL) async throws -> MP3Metadata {
+        // Ensure we have access to the file
+        guard fileURL.startAccessingSecurityScopedResource() else {
+            throw FFmpegError.fileAccessDenied
+        }
+        defer { fileURL.stopAccessingSecurityScopedResource() }
+        
         let process = Process()
         let pipe = Pipe()
         
+        // Configure FFmpeg process to read metadata
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
         process.arguments = ["-i", fileURL.path, "-f", "ffmetadata", "-"]
         process.standardOutput = pipe
         
-        try process.run()
-        process.waitUntilExit()
-        
-        let data = try pipe.fileHandleForReading.readToEnd() ?? Data()
-        let output = String(data: data, encoding: .utf8) ?? ""
-        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            // Parse FFmpeg output
+            let data = try pipe.fileHandleForReading.readToEnd() ?? Data()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            
+            return parseMetadata(from: output)
+        } catch {
+            throw FFmpegError.ffmpegExecutionFailed(error.localizedDescription)
+        }
+    }
+    
+    /// Parses FFmpeg output into MP3Metadata
+    private func parseMetadata(from output: String) -> MP3Metadata {
         var metadata = MP3Metadata()
         
-        // Parse the FFmpeg output
+        // Extract metadata fields from FFmpeg output
         let lines = output.components(separatedBy: .newlines)
         for line in lines {
-            if line.hasPrefix("title=") {
-                metadata.title = String(line.dropFirst(6))
-            } else if line.hasPrefix("artist=") {
-                metadata.artist = String(line.dropFirst(7))
-            } else if line.hasPrefix("date=") {
-                metadata.year = String(line.dropFirst(5))
-            } else if line.hasPrefix("genre=") {
-                metadata.genre = String(line.dropFirst(6))
+            let components = line.split(separator: "=", maxSplits: 1)
+            guard components.count == 2 else { continue }
+            
+            let key = components[0]
+            let value = String(components[1])
+            
+            switch key {
+            case "title": metadata.title = value
+            case "artist": metadata.artist = value
+            case "date": metadata.year = value
+            case "genre": metadata.genre = value
+            default: break
             }
         }
         
         return metadata
     }
     
+    /// Writes metadata to an MP3 file using FFmpeg
+    /// - Parameters:
+    ///   - metadata: MP3Metadata object containing the metadata to write
+    ///   - file: URL of the MP3 file to modify
+    /// - Returns: URL of the modified file
     func writeMetadata(_ metadata: MP3Metadata, to file: URL) async throws -> URL {
-        // Create a temporary output file in the app's temporary directory
-        let tempOutputFile = FileManager.default.temporaryDirectory.appendingPathComponent("\(file.lastPathComponent).temp.mp3")
-        
-        // Build FFmpeg arguments with direct metadata flags
-        var arguments = ["-i", file.path]
-        
-        // Add metadata flags for non-empty fields
-        if !metadata.title.isEmpty {
-            arguments.append("-metadata")
-            arguments.append("title=\(metadata.title)")
+        // Ensure we have access to the file
+        guard file.startAccessingSecurityScopedResource() else {
+            throw FFmpegError.fileAccessDenied
         }
-        if !metadata.artist.isEmpty {
-            arguments.append("-metadata")
-            arguments.append("artist=\(metadata.artist)")
-        }
-        if !metadata.year.isEmpty {
-            arguments.append("-metadata")
-            arguments.append("date=\(metadata.year)")
-        }
-        if !metadata.genre.isEmpty {
-            arguments.append("-metadata")
-            arguments.append("genre=\(metadata.genre)")
-        }
+        defer { file.stopAccessingSecurityScopedResource() }
         
-        // Add remaining arguments
-        arguments.append(contentsOf: ["-codec", "copy", "-y", tempOutputFile.path])
+        // Create temporary file for the modified version
+        let tempOutputFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp3")
         
-        // Run FFmpeg to write metadata
+        // Build FFmpeg command arguments
+        let arguments = buildFFmpegArguments(for: metadata, inputFile: file, outputFile: tempOutputFile)
+        
+        // Configure and run FFmpeg process
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
         process.arguments = arguments
         
-        // Capture FFmpeg output for debugging
+        // Set up pipes for capturing output and errors
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = errorPipe
         
-        try process.run()
-        process.waitUntilExit()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            // Log FFmpeg output for debugging
+            logFFmpegOutput(outputPipe: outputPipe, errorPipe: errorPipe)
+            
+            // Verify temporary file creation
+            guard FileManager.default.fileExists(atPath: tempOutputFile.path) else {
+                throw FFmpegError.tempFileCreationFailed
+            }
+            
+            // Replace original file with modified version
+            try FileManager.default.removeItem(at: file)
+            try FileManager.default.moveItem(at: tempOutputFile, to: file)
+            
+            return file
+        } catch {
+            throw FFmpegError.ffmpegExecutionFailed(error.localizedDescription)
+        }
+    }
+    
+    /// Builds FFmpeg command line arguments for metadata writing
+    private func buildFFmpegArguments(for metadata: MP3Metadata, inputFile: URL, outputFile: URL) -> [String] {
+        var arguments = ["-i", inputFile.path]
         
-        // Read FFmpeg output for debugging
+        // Add metadata flags for non-empty fields
+        if !metadata.title.isEmpty {
+            arguments.append(contentsOf: ["-metadata", "title=\(metadata.title)"])
+        }
+        if !metadata.artist.isEmpty {
+            arguments.append(contentsOf: ["-metadata", "artist=\(metadata.artist)"])
+        }
+        if !metadata.year.isEmpty {
+            arguments.append(contentsOf: ["-metadata", "date=\(metadata.year)"])
+        }
+        if !metadata.genre.isEmpty {
+            arguments.append(contentsOf: ["-metadata", "genre=\(metadata.genre)"])
+        }
+        
+        // Add remaining arguments for copying codec and output
+        arguments.append(contentsOf: ["-codec", "copy", "-y", outputFile.path])
+        
+        return arguments
+    }
+    
+    /// Logs FFmpeg output and error messages for debugging
+    private func logFFmpegOutput(outputPipe: Pipe, errorPipe: Pipe) {
         let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
         let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        if let output = String(data: outputData, encoding: .utf8) {
+        
+        if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
             print("FFmpeg output: \(output)")
         }
-        if let error = String(data: errorData, encoding: .utf8) {
+        if let error = String(data: errorData, encoding: .utf8), !error.isEmpty {
             print("FFmpeg error: \(error)")
         }
-        
-        // Check if the original file exists and is accessible
-        guard file.startAccessingSecurityScopedResource() else {
-            throw NSError(domain: "FFmpegService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Permission denied to access the original file"])
-        }
-        
-        defer {
-            file.stopAccessingSecurityScopedResource()
-        }
-        
-        // Check if the temporary output file was created successfully
-        guard FileManager.default.fileExists(atPath: tempOutputFile.path) else {
-            throw NSError(domain: "FFmpegService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create temporary output file"])
-        }
-        
-        // Remove the original file and move the temporary file to replace it
-        try FileManager.default.removeItem(at: file)
-        try FileManager.default.moveItem(at: tempOutputFile, to: file)
-        
-        return file
     }
 }

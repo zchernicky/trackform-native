@@ -6,89 +6,35 @@ import AppKit
 // Import the FFmpegService module
 @_exported import struct Foundation.URL
 
+/// Main view for the Trackform application
 struct ContentView: View {
+    // MARK: - Properties
+    
+    /// Current metadata being edited
     @State private var metadata = MP3Metadata()
+    
+    /// Currently selected MP3 file
     @State private var selectedFile: URL?
+    
+    /// UI State
     @State private var isFilePickerPresented = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var isLoading = false
     @State private var showingSaveConfirmation = false
     @State private var statusMessage: String?
-    @AppStorage("shouldAlwaysAllow") private var shouldAlwaysAllow = false
     @State private var showingInfoSheet = false
+    
+    /// User preferences
+    @AppStorage("shouldAlwaysAllow") private var shouldAlwaysAllow = false
+    
+    // MARK: - Body
     
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Fixed Header
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("Trackform")
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(.primary)
-                        Button(action: { showingInfoSheet = true }) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("About Trackform")
-                        Spacer()
-                        Button(action: { isFilePickerPresented = true }) {
-                            Label("Open File", systemImage: "doc.badge.plus")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .tint(.accentColor)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .padding(.top, 20)
-                    .background(Color.white)
-                    
-                    // File Selection Status
-                    if let file = selectedFile {
-                        VStack(spacing: 4) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "waveform")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color.accentColor)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(file.lastPathComponent)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundColor(.primary)
-                                    Text(file.deletingLastPathComponent().path)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                Button(action: {
-                                    Task {
-                                        do {
-                                            try await loadMetadata(from: file)
-                                            statusMessage = "Metadata reloaded"
-                                        } catch {
-                                            alertMessage = "Error reloading metadata: \(error.localizedDescription)"
-                                            showingAlert = true
-                                        }
-                                    }
-                                }) {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                                .help("Reload metadata from file")
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
-                        }
-                        .background(Color.white)
-                    }
-                }
-                
-                // Scrollable Content
+                headerView
+                fileSelectionView
                 ScrollView {
                     formFields
                 }
@@ -97,31 +43,7 @@ struct ContentView: View {
             .background(Color.white)
             .ignoresSafeArea(.all, edges: .all)
             .sheet(isPresented: $showingInfoSheet) {
-                VStack(spacing: 20) {
-                    Text("About Trackform")
-                        .font(.title)
-                        .fontWeight(.bold)
-                    
-                    Text("Trackform helps you manage MP3 metadata (ID3 tags) for your music files. Here's how it works:")
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        InfoRow(number: "1", text: "Select an MP3 file using the button below")
-                        InfoRow(number: "2", text: "The app will attempt to extract existing metadata")
-                        InfoRow(number: "3", text: "Review and edit the metadata fields as needed")
-                        InfoRow(number: "4", text: "Click \"Set Tags\" to save your changes")
-                    }
-                    .padding()
-                    
-                    Button("Got it!") {
-                        showingInfoSheet = false
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.top)
-                }
-                .padding()
-                .frame(width: 400)
+                InfoSheetView(isPresented: $showingInfoSheet)
             }
             .alert("Message", isPresented: $showingAlert) {
                 Button("OK", role: .cancel) { }
@@ -147,30 +69,7 @@ struct ContentView: View {
                 allowedContentTypes: [UTType.audio],
                 allowsMultipleSelection: false
             ) { result in
-                switch result {
-                case .success(let files):
-                    if let file = files.first {
-                        // Start accessing the security-scoped resource
-                        guard file.startAccessingSecurityScopedResource() else {
-                            alertMessage = "Permission denied to access the file"
-                            showingAlert = true
-                            return
-                        }
-                        
-                        selectedFile = file
-                        Task {
-                            do {
-                                try await loadMetadata(from: file)
-                            } catch {
-                                alertMessage = "Error loading metadata: \(error.localizedDescription)"
-                                showingAlert = true
-                            }
-                        }
-                    }
-                case .failure(let error):
-                    alertMessage = "Error selecting file: \(error.localizedDescription)"
-                    showingAlert = true
-                }
+                handleFileSelection(result)
             }
             .onAppear {
                 restoreBookmark()
@@ -178,129 +77,97 @@ struct ContentView: View {
         }
     }
     
+    // MARK: - View Components
+    
+    /// Header view containing the app title and open file button
+    private var headerView: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Trackform")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(.primary)
+                Button(action: { showingInfoSheet = true }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("About Trackform")
+                Spacer()
+                Button(action: { isFilePickerPresented = true }) {
+                    Label("Open File", systemImage: "doc.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.accentColor)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .padding(.top, 20)
+            .background(Color.white)
+        }
+    }
+    
+    /// View showing the currently selected file
+    private var fileSelectionView: some View {
+        Group {
+            if let file = selectedFile {
+                VStack(spacing: 4) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color.accentColor)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.lastPathComponent)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.primary)
+                            Text(file.deletingLastPathComponent().path)
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button(action: {
+                            Task {
+                                do {
+                                    try await loadMetadata(from: file)
+                                    statusMessage = "Metadata reloaded"
+                                } catch {
+                                    alertMessage = "Error reloading metadata: \(error.localizedDescription)"
+                                    showingAlert = true
+                                }
+                            }
+                        }) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reload metadata from file")
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                }
+                .background(Color.white)
+            }
+        }
+    }
+    
+    /// Form fields for editing metadata
     @ViewBuilder
     private var formFields: some View {
         VStack(spacing: 24) {
             VStack(spacing: 14) {
-                HStack(spacing: 12) {
-                    Text("Title")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.black)
-                        .frame(width: 60, alignment: .leading)
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                        TextField("Title", text: $metadata.title)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .font(.system(size: 15))
-                            .background(Color.clear)
-                            .cornerRadius(8)
-                    }
-                    .frame(height: 28)
-                }
-                .padding(.horizontal, 2)
-                HStack(spacing: 12) {
-                    Text("Artist")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.black)
-                        .frame(width: 60, alignment: .leading)
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                        TextField("Artist", text: $metadata.artist)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .font(.system(size: 15))
-                            .background(Color.clear)
-                            .cornerRadius(8)
-                    }
-                    .frame(height: 28)
-                }
-                .padding(.horizontal, 2)
-                HStack(spacing: 12) {
-                    Text("Year")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.black)
-                        .frame(width: 60, alignment: .leading)
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                        TextField("Year", text: $metadata.year)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .font(.system(size: 15))
-                            .background(Color.clear)
-                            .cornerRadius(8)
-                    }
-                    .frame(height: 28)
-                }
-                .padding(.horizontal, 2)
-                HStack(spacing: 12) {
-                    Text("Genre")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.black)
-                        .frame(width: 60, alignment: .leading)
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                        TextField("Genre", text: $metadata.genre)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .font(.system(size: 15))
-                            .background(Color.clear)
-                            .cornerRadius(8)
-                    }
-                    .frame(height: 28)
-                }
-                .padding(.horizontal, 2)
+                MetadataTextField(label: "Title", text: $metadata.title)
+                MetadataTextField(label: "Artist", text: $metadata.artist)
+                MetadataTextField(label: "Year", text: $metadata.year)
+                MetadataTextField(label: "Genre", text: $metadata.genre)
             }
             .padding(.horizontal, 8)
-
-            Button(action: {
-                if shouldAlwaysAllow {
-                    Task { await saveMetadata() }
-                } else {
-                    showingSaveConfirmation = true
-                }
-            }) {
-                HStack {
-                    if isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle())
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "square.and.arrow.down")
-                        Text("Save Metadata")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(.accentColor)
-            .disabled(selectedFile == nil || isLoading)
-
+            
+            saveButton
+            
             if let message = statusMessage {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text(message)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 8)
+                statusView(message: message)
             }
         }
         .padding(20)
@@ -308,6 +175,74 @@ struct ContentView: View {
         .background(Color.white)
     }
     
+    /// Save button with loading state
+    private var saveButton: some View {
+        Button(action: {
+            if shouldAlwaysAllow {
+                Task { await saveMetadata() }
+            } else {
+                showingSaveConfirmation = true
+            }
+        }) {
+            HStack {
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                    Text("Save Metadata")
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(.accentColor)
+        .disabled(selectedFile == nil || isLoading)
+    }
+    
+    /// Status message view
+    private func statusView(message: String) -> some View {
+        HStack {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+            Text(message)
+                .foregroundColor(.secondary)
+        }
+        .padding(.top, 8)
+    }
+    
+    // MARK: - File Operations
+    
+    /// Handles file selection from the file picker
+    private func handleFileSelection(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let files):
+            if let file = files.first {
+                guard file.startAccessingSecurityScopedResource() else {
+                    alertMessage = "Permission denied to access the file"
+                    showingAlert = true
+                    return
+                }
+                
+                selectedFile = file
+                Task {
+                    do {
+                        try await loadMetadata(from: file)
+                    } catch {
+                        alertMessage = "Error loading metadata: \(error.localizedDescription)"
+                        showingAlert = true
+                    }
+                }
+            }
+        case .failure(let error):
+            alertMessage = "Error selecting file: \(error.localizedDescription)"
+            showingAlert = true
+        }
+    }
+    
+    /// Restores the last accessed file bookmark
     private func restoreBookmark() {
         guard let bookmarkData = UserDefaults.standard.data(forKey: "bookmarkData") else {
             return
@@ -344,8 +279,11 @@ struct ContentView: View {
         }
     }
     
+    /// Loads metadata from the selected file
     private func loadMetadata(from fileURL: URL) async throws {
         isLoading = true
+        defer { isLoading = false }
+        
         do {
             let metadata = try await FFmpegService.shared.readMetadata(from: fileURL)
             self.metadata = metadata
@@ -353,20 +291,21 @@ struct ContentView: View {
             alertMessage = "Error loading metadata: \(error.localizedDescription)"
             showingAlert = true
         }
-        isLoading = false
     }
     
+    /// Saves metadata to the selected file
     private func saveMetadata() async {
         guard let file = selectedFile else { return }
         
         isLoading = true
         statusMessage = nil
+        defer { isLoading = false }
+        
         do {
             // Ensure we have access to the file
             guard file.startAccessingSecurityScopedResource() else {
                 alertMessage = "Permission denied to access the file"
                 showingAlert = true
-                isLoading = false
                 return
             }
             
@@ -388,14 +327,6 @@ struct ContentView: View {
                 }
             }
             
-            // Create metadata object
-            let metadata = MP3Metadata(
-                title: self.metadata.title,
-                artist: self.metadata.artist,
-                year: self.metadata.year,
-                genre: self.metadata.genre
-            )
-            
             // Write metadata and get the updated file URL
             let updatedFile = try await FFmpegService.shared.writeMetadata(metadata, to: file)
             
@@ -407,14 +338,75 @@ struct ContentView: View {
             alertMessage = "Error saving metadata: \(error.localizedDescription)"
             showingAlert = true
         }
-        isLoading = false
     }
 }
 
-#Preview {
-    ContentView()
+// MARK: - Supporting Views
+
+/// Text field for metadata input
+struct MetadataTextField: View {
+    let label: String
+    @Binding var text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.black)
+                .frame(width: 60, alignment: .leading)
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                TextField(label, text: $text)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .font(.system(size: 15))
+                    .background(Color.clear)
+                    .cornerRadius(8)
+            }
+            .frame(height: 28)
+        }
+        .padding(.horizontal, 2)
+    }
 }
 
+/// Info sheet view showing app information
+struct InfoSheetView: View {
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("About Trackform")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            Text("Trackform helps you manage MP3 metadata (ID3 tags) for your music files. Here's how it works:")
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            VStack(alignment: .leading, spacing: 12) {
+                InfoRow(number: "1", text: "Select an MP3 file using the button below")
+                InfoRow(number: "2", text: "The app will attempt to extract existing metadata")
+                InfoRow(number: "3", text: "Review and edit the metadata fields as needed")
+                InfoRow(number: "4", text: "Click \"Set Tags\" to save your changes")
+            }
+            .padding()
+            
+            Button("Got it!") {
+                isPresented = false
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top)
+        }
+        .padding()
+        .frame(width: 400)
+    }
+}
+
+/// Row in the info sheet
 struct InfoRow: View {
     let number: String
     let text: String
@@ -431,4 +423,8 @@ struct InfoRow: View {
             Spacer()
         }
     }
+}
+
+#Preview {
+    ContentView()
 } 
