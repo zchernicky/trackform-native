@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showingSaveConfirmation = false
     @State private var statusMessage: String?
     @AppStorage("shouldAlwaysAllow") private var shouldAlwaysAllow = false
+    @State private var showingInfoSheet = false
     
     var body: some View {
         NavigationStack {
@@ -26,6 +27,13 @@ struct ContentView: View {
                         Text("Trackform")
                             .font(.system(size: 28, weight: .bold))
                             .foregroundStyle(.primary)
+                        Button(action: { showingInfoSheet = true }) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("About Trackform")
                         Spacer()
                         Button(action: { isFilePickerPresented = true }) {
                             Label("Open File", systemImage: "doc.badge.plus")
@@ -88,6 +96,33 @@ struct ContentView: View {
             }
             .background(Color.white)
             .ignoresSafeArea(.all, edges: .all)
+            .sheet(isPresented: $showingInfoSheet) {
+                VStack(spacing: 20) {
+                    Text("About Trackform")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("Trackform helps you manage MP3 metadata (ID3 tags) for your music files. Here's how it works:")
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        InfoRow(number: "1", text: "Select an MP3 file using the button below")
+                        InfoRow(number: "2", text: "The app will attempt to extract existing metadata")
+                        InfoRow(number: "3", text: "Review and edit the metadata fields as needed")
+                        InfoRow(number: "4", text: "Click \"Set Tags\" to save your changes")
+                    }
+                    .padding()
+                    
+                    Button("Got it!") {
+                        showingInfoSheet = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top)
+                }
+                .padding()
+                .frame(width: 400)
+            }
             .alert("Message", isPresented: $showingAlert) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -378,4 +413,22 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+}
+
+struct InfoRow: View {
+    let number: String
+    let text: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(number)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Color.accentColor))
+            Text(text)
+                .font(.system(size: 15))
+            Spacer()
+        }
+    }
 } 
